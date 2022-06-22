@@ -6,10 +6,23 @@ services:
     container_name: envoy-grpc-proxy
     ports:
       - 9000:9000
+
+  nginx:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile.nginx
+    # command: [nginx-debug, '-g', 'daemon off;']
+    environment:
+      - LISTEN=9090
+      - BACKEND_GRPC_URL=grpc://grpc-web-error-details-sample-server:50051
+      - BACKEND_GRPC_WEB_URL=http://grpc-web-error-details-sample-server:8080
+    ports:
+      - 9090:9090
+
   sample-server:
     build:
       context: ../
       dockerfile: ./sample/server/Dockerfile
     container_name: grpc-web-error-details-sample-server
     ports:
-      - 50051:50051
+      - 8088:8080

@@ -3,10 +3,15 @@
 
 import { Code } from "../../lib/code_pb";
 import * as errorDetails from "../..";
-import { SampleServicePromiseClient } from "./lib/sample_grpc_web_pb";
+import {
+  SampleServiceClient,
+  SampleServicePromiseClient,
+} from "./lib/sample_grpc_web_pb";
 import { ErrorRequest, HelloReply, HelloRequest } from "./lib/sample_pb";
 
-const client = new SampleServicePromiseClient("http://localhost:9000");
+const grpc_web_server = "http://localhost:9090";
+const client = new SampleServicePromiseClient(grpc_web_server);
+const cbclient = new SampleServiceClient(grpc_web_server);
 
 (async () => {
   // Normal Response
@@ -25,6 +30,42 @@ const client = new SampleServicePromiseClient("http://localhost:9000");
         console.warn("Unknown error: ", e);
       }
     }
+  }
+  // callback client
+  {
+    const req = new ErrorRequest();
+    req.setCode(Code.FAILED_PRECONDITION);
+    cbclient.sayError(req, {}, (err, res) => {
+      console.log("Received response from callback sayError");
+      if (!err) {
+        // RPC Success
+        return;
+      }
+      const [st, details] = errorDetails.statusFromError(err);
+      // handle richer error with status and details
+      if (st && details) {
+        console.log(
+          `Created Status: code = ${st.getCode()}, message = "${st.getMessage()}"`
+        );
+        for (const [i, d] of details.entries()) {
+          console.log();
+          console.log(`call back error Details #${i + 1} is...`);
+          if (d instanceof errorDetails.DebugInfo) {
+            console.log(
+              `DebugInfo: StackEntries = [${d
+                .getStackEntriesList()
+                .join(", ")}], Detail = "${d.getDetail()}"`
+            );
+          } else if (d instanceof errorDetails.LocalizedMessage) {
+            console.log(
+              `LocalizedMessage: Locale = ${d.getLocale()}, Message = ${d.getMessage()}`
+            );
+          } else {
+            console.log("Unknown. Moving on to the next detail...");
+          }
+        }
+      }
+    });
   }
   // Error Response
   {

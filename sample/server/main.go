@@ -4,7 +4,11 @@ import (
 	"context"
 	"log"
 	"net"
+	"net/http"
+	"sync"
+	"time"
 
+	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	pb "github.com/shumbo/grpc-web-error-details/sample/proto"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -13,7 +17,8 @@ import (
 )
 
 const (
-	port = ":50051"
+	grpcPort = ":50051"
+	httpPort = ":8080"
 )
 
 type server struct {
@@ -113,13 +118,36 @@ func (s *server) SayError(ctx context.Context, in *pb.ErrorRequest) (*pb.HelloRe
 }
 
 func main() {
-	lis, err := net.Listen("tcp", port)
+	lis, err := net.Listen("tcp", grpcPort)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterSampleServiceServer(s, &server{})
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	wrappedGrpc := grpcweb.WrapServer(s)
+	handler := http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
+		if wrappedGrpc.IsGrpcWebRequest(req) {
+			wrappedGrpc.ServeHTTP(resp, req)
+			return
+		}
+		// Fall back to other servers.
+		http.DefaultServeMux.ServeHTTP(resp, req)
+	})
+	hs := &http.Server{
+		Addr:           httpPort,
+		Handler:        handler,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
+	pb.RegisterSampleServiceServer(s, &server{})
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
+		wg.Done()
+	}()
+	log.Fatal(hs.ListenAndServe())
+	wg.Wait()
 }
